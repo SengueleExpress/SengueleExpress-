@@ -123,42 +123,6 @@ const CARTS = [
   },
 ];
 
-const PAYMENTS_PENDING = [
-  { id: "p1", title: "Carrinho da Shein - Brisa de Agosto", amount: 47850, closedAt: "05/08/2026" },
-];
-
-const PAYMENTS_DONE = [
-  { id: "p2", title: "Carrinho do AliExpress - Julho", amount: 32100, paidAt: "22/07/2026" },
-  { id: "p3", title: "Carrinho da Zara - Verão", amount: 58900, paidAt: "03/07/2026" },
-];
-
-const ORDERS = [
-  {
-    id: "o1",
-    product: "Vestido midi floral",
-    cartTitle: "Carrinho da Shein - Brisa de Agosto",
-    amount: 47850,
-    status: "Em análise",
-    date: "08/08/2026",
-  },
-  {
-    id: "o2",
-    product: "Ténis Nike Air",
-    cartTitle: "Carrinho de Calçados - Nike & Adidas",
-    amount: 62000,
-    status: "Aprovado",
-    date: "02/08/2026",
-  },
-  {
-    id: "o3",
-    product: "Fones Bluetooth",
-    cartTitle: "Carrinho do AliExpress - Julho",
-    amount: 18500,
-    status: "Entregue",
-    date: "20/07/2026",
-  },
-];
-
 const ORDER_STATUS_STYLE = {
   "Em análise": { bg: "rgba(201,162,39,0.12)", color: "#9C7D1D" },
   Aprovado: { bg: "rgba(22,163,74,0.1)", color: "#16A34A" },
@@ -898,6 +862,28 @@ function CartDetailsScreen({ cart, onBack, clientEmail }) {
 /* ---------------------------------------------------------------------- */
 
 function OrdersScreen({ clientEmail }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("encomendas")
+        .select("*")
+        .eq("email_cliente", clientEmail)
+        .order("criado_em", { ascending: false });
+      if (active) {
+        setOrders(data || []);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [clientEmail]);
+
   return (
     <div className="px-4 pt-5 pb-12 max-w-lg mx-auto">
       <h1 className="text-[22px] leading-tight" style={{ color: INK, fontFamily: "'Playfair Display', serif" }}>
@@ -911,9 +897,21 @@ function OrdersScreen({ clientEmail }) {
         Notificamos automaticamente <span style={{ color: INK, opacity: 0.8 }}>{clientEmail}</span> a cada atualização.
       </p>
 
+      {loading && (
+        <p className="text-center text-[13px] py-10" style={{ color: GRAY }}>
+          A carregar...
+        </p>
+      )}
+
+      {!loading && orders.length === 0 && (
+        <p className="text-center text-[13px] py-10" style={{ color: GRAY }}>
+          Ainda não tens encomendas. Junta-te a um carrinho para começar.
+        </p>
+      )}
+
       <div className="space-y-3">
-        {ORDERS.map((o) => {
-          const s = ORDER_STATUS_STYLE[o.status];
+        {orders.map((o) => {
+          const s = ORDER_STATUS_STYLE[o.estado] || ORDER_STATUS_STYLE["Em análise"];
           return (
             <div
               key={o.id}
@@ -923,19 +921,19 @@ function OrdersScreen({ clientEmail }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[14px] truncate" style={{ color: INK }}>
-                    {o.product}
+                    {o.produto}
                   </p>
                   <p className="text-[11.5px] mt-0.5 truncate" style={{ color: GRAY }}>
-                    {o.cartTitle}
+                    {o.carrinho}
                   </p>
                 </div>
                 <span className="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: s.bg, color: s.color }}>
-                  {o.status}
+                  {o.estado}
                 </span>
               </div>
               <div className="flex items-center justify-between mt-3 pt-3 text-[12px]" style={{ borderTop: `1px solid ${GOLD_SOFT}` }}>
-                <span style={{ color: GRAY }}>{o.date}</span>
-                <span style={{ color: INK, opacity: 0.85, fontWeight: 500 }}>{kz(o.amount)}</span>
+                <span style={{ color: GRAY }}>{new Date(o.criado_em).toLocaleDateString("pt-PT")}</span>
+                <span style={{ color: INK, opacity: 0.85, fontWeight: 500 }}>{kz(o.total_kz)}</span>
               </div>
             </div>
           );
@@ -949,7 +947,32 @@ function OrdersScreen({ clientEmail }) {
 /*  TELA 3 — MEUS PAGAMENTOS                                              */
 /* ---------------------------------------------------------------------- */
 
-function PaymentsScreen() {
+function PaymentsScreen({ clientEmail }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("encomendas")
+        .select("*")
+        .eq("email_cliente", clientEmail)
+        .order("criado_em", { ascending: false });
+      if (active) {
+        setOrders(data || []);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [clientEmail]);
+
+  const pending = orders.filter((o) => o.estado === "Em análise" || o.estado === "Aprovado");
+  const done = orders.filter((o) => o.estado === "Entregue");
+
   return (
     <div className="px-4 pt-5 pb-12 max-w-lg mx-auto">
       <h1 className="text-[22px] leading-tight" style={{ color: INK, fontFamily: "'Playfair Display', serif" }}>
@@ -959,53 +982,73 @@ function PaymentsScreen() {
         Envia o comprovativo dos carrinhos à espera de pagamento.
       </p>
 
-      <section className="mb-7">
-        <p className="text-[12.5px] tracking-[0.12em] font-semibold mb-3" style={{ color: GOLD }}>
-          AGUARDAM PAGAMENTO
+      {loading && (
+        <p className="text-center text-[13px] py-10" style={{ color: GRAY }}>
+          A carregar...
         </p>
-        <div className="space-y-3">
-          {PAYMENTS_PENDING.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-[20px] p-4 flex items-center justify-between"
-              style={{ background: "#FFFFFF", border: `1px solid ${GOLD_SOFT}`, boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
-            >
-              <div>
-                <p className="text-[14px]" style={{ color: INK }}>{p.title}</p>
-                <p className="text-[12px] mt-0.5" style={{ color: GRAY }}>
-                  Fechou em {p.closedAt} · {kz(p.amount)}
-                </p>
-              </div>
-              <button className="px-3.5 py-2 rounded-full text-[12px] font-semibold shrink-0" style={{ background: GOLD_BRIGHT, color: INK }}>
-                Anexar
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
+      )}
 
-      <section>
-        <p className="text-[12.5px] tracking-[0.12em] font-semibold mb-3" style={{ color: GRAY }}>
-          PAGOS
-        </p>
-        <div className="space-y-3">
-          {PAYMENTS_DONE.map((p) => (
-            <div
-              key={p.id}
-              className="rounded-[20px] p-4 flex items-center justify-between opacity-90"
-              style={{ background: "#FFFFFF", border: `1px solid ${GOLD_SOFT}` }}
-            >
-              <div>
-                <p className="text-[14px]" style={{ color: INK }}>{p.title}</p>
-                <p className="text-[12px] mt-0.5" style={{ color: GRAY }}>
-                  Pago em {p.paidAt} · {kz(p.amount)}
-                </p>
-              </div>
-              <CheckCircle2 size={18} style={{ color: "#16A34A" }} className="shrink-0" />
+      {!loading && (
+        <>
+          <section className="mb-7">
+            <p className="text-[12.5px] tracking-[0.12em] font-semibold mb-3" style={{ color: GOLD }}>
+              AGUARDAM PAGAMENTO
+            </p>
+            {pending.length === 0 && (
+              <p className="text-[12.5px]" style={{ color: GRAY }}>
+                Nada à espera de pagamento neste momento.
+              </p>
+            )}
+            <div className="space-y-3">
+              {pending.map((p) => (
+                <div
+                  key={p.id}
+                  className="rounded-[20px] p-4 flex items-center justify-between"
+                  style={{ background: "#FFFFFF", border: `1px solid ${GOLD_SOFT}`, boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
+                >
+                  <div>
+                    <p className="text-[14px]" style={{ color: INK }}>{p.produto}</p>
+                    <p className="text-[12px] mt-0.5" style={{ color: GRAY }}>
+                      {p.carrinho} · {kz(p.total_kz)}
+                    </p>
+                  </div>
+                  <button className="px-3.5 py-2 rounded-full text-[12px] font-semibold shrink-0" style={{ background: GOLD_BRIGHT, color: INK }}>
+                    Anexar
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
+
+          <section>
+            <p className="text-[12.5px] tracking-[0.12em] font-semibold mb-3" style={{ color: GRAY }}>
+              PAGOS
+            </p>
+            {done.length === 0 && (
+              <p className="text-[12.5px]" style={{ color: GRAY }}>
+                Ainda não tens pagamentos concluídos.
+              </p>
+            )}
+            <div className="space-y-3">
+              {done.map((p) => (
+                <div
+                  key={p.id}
+                  className="rounded-[20px] p-4 flex items-center justify-between opacity-90"
+                  style={{ background: "#FFFFFF", border: `1px solid ${GOLD_SOFT}` }}
+                >
+                  <div>
+                    <p className="text-[14px]" style={{ color: INK }}>{p.produto}</p>
+                    <p className="text-[12px] mt-0.5" style={{ color: GRAY }}>
+                      {p.carrinho} · {kz(p.total_kz)}
+                    </p>
+                  </div>
+                  <CheckCircle2 size={18} style={{ color: "#16A34A" }} className="shrink-0" />
+                </div>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
@@ -1193,7 +1236,7 @@ export default function App() {
               <CartDetailsScreen cart={activeCart} onBack={() => setScreen("explore")} clientEmail={profile.email} />
             )}
             {screen === "orders" && <OrdersScreen clientEmail={profile.email} />}
-            {screen === "payments" && <PaymentsScreen />}
+            {screen === "payments" && <PaymentsScreen clientEmail={profile.email} />}
             {screen === "profile" && <ProfileScreen profile={profile} setProfile={setProfile} />}
           </main>
         </>
