@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+import emailjs from "@emailjs/browser";
 import {
   Menu,
   X,
@@ -31,6 +33,19 @@ const GOLD_BRIGHT = "#D4AF37"; // dourado de destaque (botões, emblema)
 const GOLD_SOFT = "#E9DDB0"; // dourado claro (bordas, fundos suaves)
 const INK = "#0D0D0D"; // preto principal
 const GRAY = "#6B6B70"; // texto secundário
+
+/* ---------------------------------------------------------------------- */
+/*  LIGAÇÃO AO SUPABASE (base de dados) E EMAILJS (emails automáticos)   */
+/* ---------------------------------------------------------------------- */
+
+const SUPABASE_URL = "https://rreaqsndlostzrgmuzuc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_VkvjdSCORz6fgRTMZ80_Ag_SG8ucq57";
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const EMAILJS_SERVICE_ID = "service_sengueleexpress";
+const EMAILJS_TEMPLATE_ID = "template_tkkw0of";
+const EMAILJS_PUBLIC_KEY = "ABemcpSnSmOnlURSj";
+emailjs.init(EMAILJS_PUBLIC_KEY);
 
 const WHATSAPP_NUMBER = "244951077875";
 const WHATSAPP_MESSAGE = "Olá! Preciso de ajuda com a minha conta na SengueleExpress.";
@@ -291,16 +306,36 @@ function Field({ label, children }) {
 function AuthScreen({ onCreateAccount }) {
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "" });
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
   const emailValid = /\S+@\S+\.\S+/.test(form.email);
   const canSubmit = form.firstName.trim() && form.lastName.trim() && emailValid && form.phone.trim();
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setTouched(true);
+    setErrorMsg("");
     if (!canSubmit) return;
-    onCreateAccount(form);
+    setSaving(true);
+    try {
+      const { error } = await supabase.from("clientes").upsert(
+        {
+          nome: form.firstName,
+          sobrenome: form.lastName,
+          email: form.email,
+          telefone: form.phone,
+        },
+        { onConflict: "email" }
+      );
+      if (error) throw error;
+      onCreateAccount(form);
+    } catch (err) {
+      setErrorMsg("Não foi possível guardar a conta agora. Tenta novamente.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -374,11 +409,18 @@ function AuthScreen({ onCreateAccount }) {
 
           <button
             onClick={handleSubmit}
+            disabled={saving}
             className="w-full py-3.5 rounded-full text-[14px] font-semibold transition-transform active:scale-[0.98]"
-            style={{ background: GOLD_BRIGHT, color: INK }}
+            style={{ background: GOLD_BRIGHT, color: INK, opacity: saving ? 0.7 : 1 }}
           >
-            Criar conta e continuar
+            {saving ? "A criar conta..." : "Criar conta e continuar"}
           </button>
+
+          {errorMsg && (
+            <p className="text-[11.5px] text-center" style={{ color: "#B3261E" }}>
+              {errorMsg}
+            </p>
+          )}
 
           <p className="text-[11.5px] text-center" style={{ color: GRAY }}>
             Ao criar conta, aceitas receber confirmações das tuas encomendas por email.
@@ -643,18 +685,49 @@ function CartDetailsScreen({ cart, onBack, clientEmail }) {
   }, [priceUSD, qty, cart.rate]);
 
   const canSubmit = productName.trim() && productLink.trim() && parseFloat(priceUSD) > 0 && qty > 0;
+  const [sending, setSending] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit) return;
-    setSent(true);
-    setTimeout(() => {
-      setSent(false);
-      setProductName("");
-      setProductLink("");
-      setPriceUSD("");
-      setQty(1);
-      setNote("");
-    }, 2200);
+    setSending(true);
+    setErrorMsg("");
+    try {
+      const finalTotal = Math.round(totalKz);
+
+      const { error: dbError } = await supabase.from("encomendas").insert({
+        email_cliente: clientEmail,
+        carrinho: cart.title,
+        produto: productName,
+        link_produto: productLink,
+        preco_usd: parseFloat(priceUSD),
+        quantidade: parseInt(qty, 10),
+        total_kz: finalTotal,
+        observacao: note,
+      });
+      if (dbError) throw dbError;
+
+      await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+        to_email: clientEmail,
+        produto: productName,
+        carrinho: cart.title,
+        total_kz: finalTotal,
+      });
+
+      setSent(true);
+      setTimeout(() => {
+        setSent(false);
+        setProductName("");
+        setProductLink("");
+        setPriceUSD("");
+        setQty(1);
+        setNote("");
+      }, 2800);
+    } catch (err) {
+      setErrorMsg("Não foi possível enviar agora. Tenta novamente.");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -774,22 +847,31 @@ function CartDetailsScreen({ cart, onBack, clientEmail }) {
 
         <button
           onClick={handleSubmit}
-          disabled={!canSubmit}
+          disabled={!canSubmit || sending}
           className="w-full py-3.5 rounded-full text-[14px] font-semibold transition-all flex items-center justify-center gap-2"
           style={{
             background: canSubmit ? GOLD_BRIGHT : "#F1ECD9",
             color: canSubmit ? INK : "#B5AA80",
-            cursor: canSubmit ? "pointer" : "not-allowed",
+            cursor: canSubmit && !sending ? "pointer" : "not-allowed",
+            opacity: sending ? 0.7 : 1,
           }}
         >
           {sent ? (
             <>
               <CheckCircle2 size={16} /> Enviado!
             </>
+          ) : sending ? (
+            "A enviar..."
           ) : (
             "Enviar produto para o carrinho"
           )}
         </button>
+
+        {errorMsg && (
+          <p className="text-[11.5px] text-center" style={{ color: "#B3261E" }}>
+            {errorMsg}
+          </p>
+        )}
 
         <p className="text-[11.5px] text-center pt-1" style={{ color: GRAY }}>
           A equipa da SengueleExpress analisa o teu pedido antes de avançar com a compra.
