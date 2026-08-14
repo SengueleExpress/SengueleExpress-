@@ -22,6 +22,7 @@ import {
   Send,
   Phone,
   UserPlus,
+  Upload,
 } from "lucide-react";
 
 /* ---------------------------------------------------------------------- */
@@ -947,6 +948,73 @@ function OrdersScreen({ clientEmail }) {
 /*  TELA 3 — MEUS PAGAMENTOS                                              */
 /* ---------------------------------------------------------------------- */
 
+function AttachProof({ order, onUploaded }) {
+  const [uploading, setUploading] = useState(false);
+  const [done, setDone] = useState(!!order.comprovativo_url);
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    try {
+      const path = `${order.email_cliente}/${order.id}-${Date.now()}-${file.name}`;
+      const { error: upErr } = await supabase.storage.from("comprovativos").upload(path, file);
+      if (upErr) throw upErr;
+      const { data } = supabase.storage.from("comprovativos").getPublicUrl(path);
+      const url = data?.publicUrl;
+      const { error: dbErr } = await supabase.from("encomendas").update({ comprovativo_url: url }).eq("id", order.id);
+      if (dbErr) throw dbErr;
+      setDone(true);
+      onUploaded?.(order.id, url);
+    } catch (err) {
+      setError("Falhou. Tenta outra vez.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <span className="flex items-center gap-1.5 text-[12px] font-semibold shrink-0" style={{ color: "#16A34A" }}>
+        <CheckCircle2 size={16} /> Enviado
+      </span>
+    );
+  }
+
+  return (
+    <div className="shrink-0 flex flex-col items-end gap-1">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        className="hidden"
+        onChange={handleFile}
+      />
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        className="px-3.5 py-2 rounded-full text-[12px] font-semibold flex items-center gap-1.5"
+        style={{ background: GOLD_BRIGHT, color: INK, opacity: uploading ? 0.6 : 1 }}
+      >
+        {uploading ? "A enviar..." : (
+          <>
+            <Upload size={13} /> Anexar
+          </>
+        )}
+      </button>
+      {error && (
+        <span className="text-[10.5px]" style={{ color: "#B3261E" }}>
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PaymentsScreen({ clientEmail }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1012,9 +1080,12 @@ function PaymentsScreen({ clientEmail }) {
                       {p.carrinho} · {kz(p.total_kz)}
                     </p>
                   </div>
-                  <button className="px-3.5 py-2 rounded-full text-[12px] font-semibold shrink-0" style={{ background: GOLD_BRIGHT, color: INK }}>
-                    Anexar
-                  </button>
+                  <AttachProof
+                    order={p}
+                    onUploaded={(id, url) =>
+                      setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, comprovativo_url: url } : o)))
+                    }
+                  />
                 </div>
               ))}
             </div>
